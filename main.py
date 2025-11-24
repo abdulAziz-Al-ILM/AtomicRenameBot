@@ -91,15 +91,16 @@ async def cmd_start(message: Message):
 
 @router.message(F.text == "ℹ️ Qo'llanma")
 async def help_handler(message: Message):
-    text = (
+    await message.answer(
         "<b>Qanday ishlatish kerak?</b>\n\n"
         "1. Menga fayl (hujjat, video, musiqa) yuboring.\n"
         "2. Men sizdan yangi nom so'rayman.\n"
         "3. Yangi nomni yozasiz (kengaytmani yozish shart emas, masalan: `.pdf`, `.mp4` ni o'zim qo'yaman).\n"
         "4. Men faylni o'zgartirib sizga qaytaraman.\n\n"
         "⚠️ <i>Eslatma: Fayl nomida / \\ : * ? \" < > | belgilaridan foydalanmang! </i>",
+        reply_markup=main_keyboard(message.from_user.id)
     )
-    await message.answer(text, parse_mode="HTML")
+    
 
 @router.message(F.text == "📢 Reklama xizmati")
 async def ads_handler(message: Message):
