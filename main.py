@@ -1,194 +1,258 @@
 import asyncio
-import aiosqlite
 import logging
 import os
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile
+import re
+import sys
+import aiosqlite
+from aiogram import Bot, Dispatcher, Router, F
+from aiogram.filters import Command, CommandStart
+from aiogram.types import (
+    Message, FSInputFile, ReplyKeyboardMarkup, KeyboardButton, 
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from aiogram.enums import ContentType
 
-# ────── MUHIT OʻZGARUVCHILARI ──────
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+# --- SOZLAMALAR (ENVIRONMENT VARIABLES) ---
+# Bularni Railway-da Variables bo'limiga kiritasiz
+BOT_TOKEN = os.getenv("BOT_TOKEN") 
+ADMIN_ID = int(os.getenv("ADMIN_ID")) # O'zingizning Telegram ID raqamingiz
 
-if not BOT_TOKEN or not ADMIN_ID:
-    raise ValueError("BOT_TOKEN va ADMIN_ID sozlanmagan!")
+# --- LOGGING ---
+logging.basicConfig(level=logging.INFO)
 
-# REKLAMA SOZLAMLARI (oʻzgartiring)
-REKLAMA_TEXT = """
-Fayl nomi oʻzgartirildi!
+# --- FSM (HOLATLAR) ---
+class RenameState(StatesGroup):
+    waiting_for_file = State()
+    waiting_for_name = State()
 
-Reklama va PR uchun:
-@reklamauz_admin   t.me/reklamauz_admin
-"""
+class AdminState(StatesGroup):
+    waiting_for_broadcast = State()
 
-CONTACT_BUTTON = "Reklama"
+# --- DATABASE INITIALIZATION ---
+DB_NAME = "bot_users.db"
 
-# ────── BOT VA DP ──────
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-DB = "bot.db"
-
-# ────── STATES ──────
-class Rename(StatesGroup):
-    waiting_name = State()
-
-class Broadcast(StatesGroup):
-    waiting_msg = State()
-
-# ────── DB ──────
 async def init_db():
-    async with aiosqlite.connect(DB) as db:
-        await db.execute('''CREATE TABLE IF NOT EXISTS users(
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            is_blocked INTEGER DEFAULT 0
-        )''')
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)")
         await db.commit()
 
-async def add_user(user: types.User):
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("""INSERT OR REPLACE INTO users 
-            (user_id, username, first_name, is_blocked) 
-            VALUES (?, ?, ?, 0)""",
-            (user.id, user.username or "", user.first_name or ""))
+async def add_user(user_id):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
         await db.commit()
 
-async def active_users():
-    async with aiosqlite.connect(DB) as db:
-        cur = await db.execute("SELECT COUNT(*) FROM users WHERE is_blocked = 0")
-        row = await cur.fetchone()
-        return row[0]
+async def get_users_count():
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM users")
+        count = await cursor.fetchone()
+        return count[0]
 
-async def all_users():
-    async with aiosqlite.connect(DB) as db:
-        cur = await db.execute("SELECT user_id FROM users WHERE is_blocked = 0")
-        rows = await cur.fetchall()
-        return [r[0] for r in rows]
+async def get_all_users():
+    async with aiosqlite.connect(DB_NAME) as db:
+        cursor = await db.execute("SELECT user_id FROM users")
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
 
-# ────── MENULAR ──────
-def user_menu():
-    kb = ReplyKeyboardBuilder()
-    kb.button(text=CONTACT_BUTTON)
-    return kb.as_markup(resize_keyboard=True)
+# --- TUGMALAR ---
+def main_keyboard(user_id):
+    buttons = [
+        [KeyboardButton(text="📢 Reklama xizmati")],
+        [KeyboardButton(text="ℹ️ Qo'llanma")]
+    ]
+    # Agar admin bo'lsa qo'shimcha tugmalar
+    if user_id == ADMIN_ID:
+        buttons.append([KeyboardButton(text="📊 Statistika"), KeyboardButton(text="📨 Xabar yuborish")])
+    
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-def admin_menu():
-    kb = ReplyKeyboardBuilder()
-    kb.button(text="Statistika")
-    kb.button(text="Hammaga xabar")
-    kb.button(text="Oddiy menu")
-    kb.adjust(2, 1)
-    return kb.as_markup(resize_keyboard=True)
+cancel_kb = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Bekor qilish")]], resize_keyboard=True)
 
-# ────── HANDLERS ──────
-@dp.message(Command("start"))
-async def start(m: Message):
-    await add_user(m.from_user)
-    if m.from_user.id == ADMIN_ID:
-        await m.answer("Admin panel ochildi!", reply_markup=admin_menu())
-    else:
-        await m.answer(
-            "Assalomu alaykum!\n\n"
-            "Fayl yuboring → yangi nomini yozing → tayyor!",
-            reply_markup=user_menu()
-        )
+# --- BOT INITIALIZATION ---
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+router = Router()
+dp.include_router(router)
 
-@dp.message(F.text == CONTACT_BUTTON)
-async def reklama(m: Message):
-    await add_user(m.from_user)
-    await m.answer(f"{CONTACT_BUTTON} uchun:\n@reklamauz_admin")
+# --- HANDLERS (FUNKSIYALAR) ---
 
-@dp.message(F.text == "Oddiy menu")
-async def back_menu(m: Message):
-    if m.from_user.id != ADMIN_ID: return
-    await m.answer("Oddiy foydalanuvchi menusi", reply_markup=user_menu())
+@router.message(CommandStart())
+async def cmd_start(message: Message):
+    await add_user(message.from_user.id)
+    await message.answer(
+        f"Assalomu alaykum, {message.from_user.full_name}!\n\n"
+        "Men fayllarni qayta nomlab beruvchi bepul botman. "
+        "Menga istalgan hujjat, video yoki audio fayl yuboring.\n\n"
+        "Agar reklama bo'yicha savollaringiz bo'lsa, menyudagi tugmadan foydalaning.",
+        reply_markup=main_keyboard(message.from_user.id)
+    )
 
-@dp.message(F.text == "Statistika")
-async def stats(m: Message):
-    if m.from_user.id != ADMIN_ID: return
-    cnt = await active_users()
-    await m.answer(f"Faol foydalanuvchilar: <b>{cnt}</b> ta")
+@router.message(F.text == "ℹ️ Qo'llanma")
+async def help_handler(message: Message):
+    text = (
+        "<b>Qanday ishlatish kerak?</b>\n\n"
+        "1. Menga fayl (hujjat, video, musiqa) yuboring.\n"
+        "2. Men sizdan yangi nom so'rayman.\n"
+        "3. Yangi nomni yozasiz (kengaytmani yozish shart emas, masalan: `.pdf`, `.mp4` ni o'zim qo'yaman).\n"
+        "4. Men faylni o'zgartirib sizga qaytaraman.\n\n"
+        "⚠️ <i>Eslatma: Fayl nomida / \\ : * ? \" < > | belgilaridan foydalanmang!</i>"
+    )
+    await message.answer(text, parse_mode="HTML")
 
-@dp.message(F.text == "Hammaga xabar")
-async def b_start(m: Message, state: FSMContext):
-    if m.from_user.id != ADMIN_ID: return
-    await m.answer("Xabarni yuboring (matn, rasm, video – hammasi boʻladi)")
-    await state.set_state(Broadcast.waiting_msg)
+@router.message(F.text == "📢 Reklama xizmati")
+async def ads_handler(message: Message):
+    # Adminga bog'lanish uchun inline tugma
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👤 Admin bilan bog'lanish", url=f"tg://user?id={ADMIN_ID}")]
+    ])
+    await message.answer(
+        "Ushbu bot orqali minglab faol foydalanuvchilarga o'z reklamangizni tarqatishingiz mumkin.\n\n"
+        "Batafsil ma'lumot va narxlar uchun admin bilan bog'laning:",
+        reply_markup=kb
+    )
 
-@dp.message(Broadcast.waiting_msg)
-async def b_send(m: Message, state: FSMContext):
-    if m.from_user.id != ADMIN_ID: return
-    users = await all_users()
-    await m.answer(f"Boshlandi... Jami: {len(users)}")
-    success = blocked = 0
-    for uid in users:
-        try:
-            await m.copy_to(uid)
-            success += 1
-        except:
-            blocked += 1
-            async with aiosqlite.connect(DB) as db:
-                await db.execute("UPDATE users SET is_blocked=1 WHERE user_id=?", (uid,))
-                await db.commit()
-        await asyncio.sleep(0.035)
-    await m.answer(f"Yuborildi: {success}\nBloklagan: {blocked}")
-    await state.clear()
+# --- ADMIN FUNCTIONALITY ---
 
-# Fayl qabul qilish
-@dp.message(F.document | F.photo | F.video | F.audio | F.voice | F.animation | F.video_note)
-async def file_get(m: Message, state: FSMContext):
-    await add_user(m.from_user)
+@router.message(F.text == "📊 Statistika", F.from_user.id == ADMIN_ID)
+async def stats_handler(message: Message):
+    count = await get_users_count()
+    await message.answer(f"👥 <b>Bot foydalanuvchilari soni:</b> {count} ta\n\nReklama tarqatsangiz shuncha odamga borishi kutilmoqda.", parse_mode="HTML")
 
-    if m.document: file = m.document
-    elif m.photo: file = m.photo[-1]
-    elif m.video: file = m.video
-    elif m.audio: file = m.audio
-    elif m.voice: file = m.voice
-    elif m.animation: file = m.animation
-    elif m.video_note: file = m.video_note
+@router.message(F.text == "📨 Xabar yuborish", F.from_user.id == ADMIN_ID)
+async def broadcast_ask(message: Message, state: FSMContext):
+    await message.answer("Foydalanuvchilarga yuboriladigan xabar matnini (yoki rasm/video) yuboring:", reply_markup=cancel_kb)
+    await state.set_state(AdminState.waiting_for_broadcast)
 
-    await state.update_data(file_id=file.file_id, type=m.content_type)
-    await m.answer("Yangi nomni yozing (kengaytma bilan):\n<code>mening_fayl.pdf</code>")
-    await state.set_state(Rename.waiting_name)
-
-# Nom oʻzgartirish
-@dp.message(Rename.waiting_name)
-async def rename_file(m: Message, state: FSMContext):
-    new_name = m.text.strip()
-    if not new_name or len(new_name) > 100:
-        await m.answer("Notoʻgʻri nom!")
+@router.message(AdminState.waiting_for_broadcast)
+async def broadcast_send(message: Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Xabar yuborish bekor qilindi.", reply_markup=main_keyboard(message.from_user.id))
         return
 
-    data = await state.get_data()
-    file = await bot.get_file(data["file_id"])
-    downloaded = await bot.download_file(file.file_path)
-    input_file = FSInputFile(downloaded, filename=new_name)
+    users = await get_all_users()
+    count = 0
+    blocked = 0
+    
+    status_msg = await message.answer("Xabar yuborilmoqda...")
+    
+    for user_id in users:
+        try:
+            # Admin yuborgan xabarni nusxalab foydalanuvchiga jo'natish
+            await message.copy_to(chat_id=user_id)
+            count += 1
+        except Exception:
+            blocked += 1
+            
+    await status_msg.edit_text(f"✅ Xabar yuborildi!\n\nYetib bordi: {count} ta\nBloklaganlar: {blocked} ta")
+    await state.clear()
+    await message.answer("Bosh menyu:", reply_markup=main_keyboard(message.from_user.id))
 
-    try:
-        if data["type"] == "photo":
-            await m.answer_photo(input_file, caption=REKLAMA_TEXT)
-        else:
-            await m.answer_document(input_file, caption=REKLAMA_TEXT)
-    except Exception as e:
-        await m.answer(f"Xatolik: {e}")
-    finally:
+# --- FAYL QAYTA NOMLASH LOGIKASI ---
+
+@router.message(F.document | F.video | F.audio)
+async def file_handler(message: Message, state: FSMContext):
+    # Fayl ID va asl nomini aniqlash
+    if message.document:
+        file_id = message.document.file_id
+        orig_name = message.document.file_name or "document"
+    elif message.video:
+        file_id = message.video.file_id
+        orig_name = message.video.file_name or "video.mp4"
+    elif message.audio:
+        file_id = message.audio.file_id
+        orig_name = message.audio.file_name or "audio.mp3"
+    else:
+        return
+
+    # Fayl kengaytmasini olish (ext)
+    _, ext = os.path.splitext(orig_name)
+    if not ext:
+        ext = "" # Agar kengaytma bo'lmasa
+
+    # State ga saqlaymiz
+    await state.update_data(file_id=file_id, ext=ext)
+    await state.set_state(RenameState.waiting_for_name)
+    
+    await message.reply(
+        f"Fayl qabul qilindi!\nEski nomi: {orig_name}\n\n"
+        "<b>Yangi nomni kiriting:</b> (kengaytmani yozish shart emas)",
+        parse_mode="HTML",
+        reply_markup=cancel_kb
+    )
+
+@router.message(RenameState.waiting_for_name)
+async def rename_handler(message: Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
         await state.clear()
+        await message.answer("Amal bekor qilindi.", reply_markup=main_keyboard(message.from_user.id))
+        return
 
-# ────── START ──────
+    new_name = message.text.strip()
+    
+    # Validatsiya: Tizim uchun xavfli belgilarni tekshirish
+    invalid_chars = r'[<>:"/\\|?*]'
+    if re.search(invalid_chars, new_name):
+        await message.reply(
+            "⚠️ <b>Xatolik!</b> Nomda quyidagi belgilar bo'lishi mumkin emas:\n"
+            "<code>< > : \" / \\ | ? *</code>\n\n"
+            "Iltimos, boshqa nom yozing:",
+            parse_mode="HTML"
+        )
+        return # State o'zgarmaydi, qayta kutadi
+
+    # Ma'lumotlarni olish
+    data = await state.get_data()
+    file_id = data['file_id']
+    ext = data['ext']
+    
+    # Yakuniy fayl nomi
+    if not new_name.endswith(ext):
+        final_filename = new_name + ext
+    else:
+        final_filename = new_name
+
+    wait_msg = await message.answer("⏳ Fayl qayta nomlanmoqda va yuklanmoqda...")
+    
+    try:
+        # Faylni vaqtinchalik yuklab olish
+        file = await bot.get_file(file_id)
+        file_path = file.file_path
+        
+        # Serverga yuklash
+        temp_path = f"downloads/{final_filename}"
+        os.makedirs("downloads", exist_ok=True)
+        
+        await bot.download_file(file_path, temp_path)
+        
+        # Faylni foydalanuvchiga qaytarish
+        input_file = FSInputFile(temp_path, filename=final_filename)
+        await message.answer_document(input_file, caption=f"✅ Marhamat: {final_filename}")
+        
+        # Tozalash
+        os.remove(temp_path)
+        await wait_msg.delete()
+        
+    except Exception as e:
+        await wait_msg.edit_text(f"Xatolik yuz berdi: {e}")
+    
+    await state.clear()
+    # Admin bo'lsa admin panelga, user bo'lsa oddiy menyuga qaytish shart emas, shunchaki tugadi.
+    # Lekin qulaylik uchun menyuni yana bir bor ko'rsatib qo'yish mumkin:
+    if message.from_user.id == ADMIN_ID:
+        await message.answer("Yana nima qilamiz?", reply_markup=main_keyboard(message.from_user.id))
+    else:
+        await message.answer("Yana fayl yuborishingiz mumkin.", reply_markup=main_keyboard(message.from_user.id))
+
+
+# --- MAIN ENTRY POINT ---
 async def main():
     await init_db()
-    print("Bot ishga tushdi!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot to'xtatildi")
