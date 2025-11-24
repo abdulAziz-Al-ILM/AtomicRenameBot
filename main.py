@@ -84,23 +84,21 @@ async def cmd_start(message: Message):
         f"Assalomu alaykum, {message.from_user.full_name}!\n\n"
         "Men fayllarni qayta nomlab beruvchi bepul botman. "
         "Menga istalgan hujjat, video yoki audio fayl yuboring.\n\n"
-        "Agar reklama bo'yicha savollaringiz bo'lsa, menyudagi tugmadan foydalaning. \n\n"
-        "Foydalanish qoidalari (ToU) bilan tanishing: https://t.me/Atomic_Online_Services/5",
+        "Agar reklama bo'yicha savollaringiz bo'lsa, menyudagi tugmadan foydalaning.",
         reply_markup=main_keyboard(message.from_user.id)
     )
 
 @router.message(F.text == "ℹ️ Qo'llanma")
 async def help_handler(message: Message):
-    await message.answer(
+    text = (
         "<b>Qanday ishlatish kerak?</b>\n\n"
         "1. Menga fayl (hujjat, video, musiqa) yuboring.\n"
         "2. Men sizdan yangi nom so'rayman.\n"
         "3. Yangi nomni yozasiz (kengaytmani yozish shart emas, masalan: `.pdf`, `.mp4` ni o'zim qo'yaman).\n"
         "4. Men faylni o'zgartirib sizga qaytaraman.\n\n"
-        "⚠️ <i>Eslatma: Fayl nomida / \\ : * ? \" < > | belgilaridan foydalanmang! </i>",
-        reply_markup=main_keyboard(message.from_user.id)
+        "⚠️ <i>Eslatma: Fayl nomida / \\ : * ? \" < > | belgilaridan foydalanmang!</i>"
     )
-    
+    await message.answer(text, parse_mode="HTML")
 
 @router.message(F.text == "📢 Reklama xizmati")
 async def ads_handler(message: Message):
