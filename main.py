@@ -96,7 +96,7 @@ async def help_handler(message: Message):
         "2. Men sizdan yangi nom so'rayman.\n"
         "3. Yangi nomni yozasiz (kengaytmani yozish shart emas, masalan: `.pdf`, `.mp4` ni o'zim qo'yaman).\n"
         "4. Men faylni o'zgartirib sizga qaytaraman.\n\n"
-        "⚠️ <i>Eslatma: Fayl nomida / \\ : * ? \" < > | belgilaridan foydalanmang! Rahmat</i>"
+        "⚠️ <i>Eslatma: Fayl nomida / \\ : * ? \" < > | belgilaridan foydalanmang! </i>"
     )
     await message.answer(text, parse_mode="HTML")
 
