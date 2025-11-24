@@ -1,15 +1,17 @@
-FROM python:3.12-slim
+# Python 3.10 asosidagi yengil versiyani olamiz
+FROM python:3.10-slim
 
+# Ishchi papkani belgilaymiz
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc && rm -rf /var/lib/apt/lists/*
-
+# Kerakli fayllarni nusxalaymiz
 COPY requirements.txt .
+
+# Kutubxonalarni o'rnatamiz
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+# Qolgan barcha kodlarni nusxalaymiz
+COPY . .
 
-ENV BOT_TOKEN=your_token
-ENV ADMIN_ID=123456789
-
+# Botni ishga tushiramiz
 CMD ["python", "main.py"]
