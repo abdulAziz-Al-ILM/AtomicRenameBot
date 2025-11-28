@@ -85,7 +85,7 @@ async def cmd_start(message: Message):
         "Men fayllarni qayta nomlab beruvchi bepul botman. "
         "Menga istalgan hujjat, video yoki audio fayl yuboring.\n\n"
         "Agar reklama bo'yicha savollaringiz bo'lsa, menyudagi tugmadan foydalaning. \n\n"
-        "Foydalanish qoidalari (ToU) bilan tanishing: https://t.me/Atomic_Online_Services/5",
+        "Foydalanish qoidalari (ToU) bilan tanishing: https://t.me/Online_Services_Atomic/5",
         reply_markup=main_keyboard(message.from_user.id)
     )
 
