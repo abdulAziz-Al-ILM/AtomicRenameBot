@@ -155,7 +155,14 @@ async def broadcast_send(message: Message, state: FSMContext):
 @router.message(F.document | F.video | F.audio | F.document.file_name.endswith(('.apk', '.APK')))
 async def file_handler(message: Message, state: FSMContext):
     # Fayl ID va asl nomini aniqlash
-    if message.document:
+    if message.document.file_name.endswith(('.apk', '.APK')):
+        await message.reply(
+        "⚠️ **XAVFSIZLIK OGOHLANTIRISHI** ⚠️\n\n"
+        "Yuklagan faylingiz $APK$ (Android dastur) kengaytmasiga ega.\n"
+        "Bot xavfsizligini ta'minlash maqsadida bunday fayllar **qabul qilinmaydi**.\n\n"
+        "Iltimos, boshqa turdagi faylni yuboring."
+    )
+    elif message.document:
         file_id = message.document.file_id
         orig_name = message.document.file_name or "document"
     elif message.video:
@@ -164,13 +171,6 @@ async def file_handler(message: Message, state: FSMContext):
     elif message.audio:
         file_id = message.audio.file_id
         orig_name = message.audio.file_name or "audio.mp3"
-    elif message.document.file_name.endswith(('.apk', '.APK')):
-        await message.reply(
-        "⚠️ **XAVFSIZLIK OGOHLANTIRISHI** ⚠️\n\n"
-        "Yuklagan faylingiz $APK$ (Android dastur) kengaytmasiga ega.\n"
-        "Bot xavfsizligini ta'minlash maqsadida bunday fayllar **qabul qilinmaydi**.\n\n"
-        "Iltimos, boshqa turdagi faylni yuboring."
-    )
     else:
         return
 
