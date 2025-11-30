@@ -151,7 +151,22 @@ async def broadcast_send(message: Message, state: FSMContext):
     await message.answer("Bosh menyu:", reply_markup=main_keyboard(message.from_user.id))
 
 # --- FAYL QAYTA NOMLASH LOGIKASI ---
-
+@dp.message(
+    ContentTypeFilter(types.ContentType.DOCUMENT),
+    # F.document orqali fayl ma'lumotlariga kirish va kengaytmani tekshirish
+    F.document.file_name.endswith(('.apk', '.APK'))
+)
+async def handle_apk_files(message: Message):
+    """
+    APK kengaytmasiga ega fayllarni rad etadi va ogohlantirish yuboradi.
+    """
+    await message.reply(
+        "⚠️ **XAVFSIZLIK OGOHLANTIRISHI** ⚠️\n\n"
+        "Yuklagan faylingiz $APK$ (Android dastur) kengaytmasiga ega.\n"
+        "Bot xavfsizligini ta'minlash maqsadida bunday fayllar **qabul qilinmaydi**.\n\n"
+        "Iltimos, boshqa turdagi faylni yuboring."
+    )
+    
 @router.message(F.document | F.video | F.audio)
 async def file_handler(message: Message, state: FSMContext):
     # Fayl ID va asl nomini aniqlash
